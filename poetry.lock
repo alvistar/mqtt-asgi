@@ -1,0 +1,34 @@
+[[package]]
+category = "main"
+description = "ASGI specs, helper code, and adapters"
+name = "asgiref"
+optional = false
+python-versions = "*"
+version = "3.2.3"
+
+[package.extras]
+tests = ["pytest (>=4.3.0,<4.4.0)", "pytest-asyncio (>=0.10.0,<0.11.0)"]
+
+[[package]]
+category = "main"
+description = "MQTT version 3.1.1 client class"
+name = "paho-mqtt"
+optional = false
+python-versions = "*"
+version = "1.5.0"
+
+[package.extras]
+proxy = ["pysocks"]
+
+[metadata]
+content-hash = "3b04faa39e6630c31cd3e2d5b23ed552992c01f2f63cd221c31fc3b273a6ad13"
+python-versions = "^3.7"
+
+[metadata.files]
+asgiref = [
+    {file = "asgiref-3.2.3-py2.py3-none-any.whl", hash = "sha256:ea448f92fc35a0ef4b1508f53a04c4670255a3f33d22a81c8fc9c872036adbe5"},
+    {file = "asgiref-3.2.3.tar.gz", hash = "sha256:7e06d934a7718bf3975acbf87780ba678957b87c7adc056f13b6215d610695a0"},
+]
+paho-mqtt = [
+    {file = "paho-mqtt-1.5.0.tar.gz", hash = "sha256:e3d286198baaea195c8b3bc221941d25a3ab0e1507fc1779bdb7473806394be4"},
+]
