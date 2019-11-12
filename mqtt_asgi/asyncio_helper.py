@@ -19,35 +19,35 @@ class AsyncioHelper:
         self.client.on_socket_unregister_write = self.on_socket_unregister_write
 
     def on_socket_open(self, client, userdata, sock):
-        logger.info("Socket opened")
+        logger.debug("Socket opened")
 
         def cb():
-            logger.info("Socket is readable, calling loop_read")
+            logger.debug("Socket is readable, calling loop_read")
             client.loop_read()
 
         self.loop.add_reader(sock, cb)
         self.misc = self.loop.create_task(self.misc_loop())
 
     def on_socket_close(self, client, userdata, sock):
-        logger.info("Socket closed")
+        logger.debug("Socket closed")
         self.loop.remove_reader(sock)
         # self.misc.cancel()
 
     def on_socket_register_write(self, client, userdata, sock):
-        logger.info("Watching socket for writability.")
+        logger.debug("Watching socket for writability.")
 
         def cb():
-            logger.info("Socket is writable, calling loop_write")
+            logger.debug("Socket is writable, calling loop_write")
             client.loop_write()
 
         self.loop.add_writer(sock, cb)
 
     def on_socket_unregister_write(self, client, userdata, sock):
-        logger.info("Stop watching socket for writability.")
+        logger.debug("Stop watching socket for writability.")
         self.loop.remove_writer(sock)
 
     async def misc_loop(self):
-        logger.info("misc_loop started")
+        logger.debug("misc_loop started")
 
         run = True
 
@@ -61,16 +61,14 @@ class AsyncioHelper:
                 except asyncio.CancelledError:
                     break
 
-            print(rc)
-
             if rc == mqtt.MQTT_ERR_NO_CONN:
-                logger.info('--- Reconnecting')
+                logger.debug('--- Reconnecting')
                 try:
                     self.client.reconnect()
                 except (socket.error, OSError, WebsocketConnectionError):
-                    logger.info('Reconnection failed. Retrying')
+                    logger.debug('Reconnection failed. Retrying')
                     await asyncio.sleep(3)
 
             else:
-                logger.info("misc_loop finished")
+                logger.debug("misc_loop finished")
                 run = False

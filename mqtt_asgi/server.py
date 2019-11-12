@@ -1,5 +1,7 @@
+import signal
 import socket
 import time
+from typing import Optional
 
 from mqtt_asgi.asyncio_helper import AsyncioHelper
 from asgiref.server import StatelessServer
@@ -15,7 +17,9 @@ class MqttServer(StatelessServer):
     # receive: asyncio.Queue
     client: mqtt.Client
     connected: asyncio.Event
-    mqtt_q: 'asyncio.Queue[mqtt.MQTTMessage]'
+    mqtt_q: 'Optional[asyncio.Queue[mqtt.MQTTMessage]]'
+    should_exit: bool = False
+    force_exit: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,7 +35,6 @@ class MqttServer(StatelessServer):
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         logger.info("Connected with result code " + str(rc))
         self.connected.set()
-        # asyncio.ensure_future(self.handle())
 
     def on_message(self, client: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
         try:
@@ -57,6 +60,14 @@ class MqttServer(StatelessServer):
         self.client.socket().setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 2048)
 
         await self.handle()
+
+    async def serve(self):
+        event_loop = asyncio.get_event_loop()
+        asyncio.ensure_future(self.application_checker())
+
+        AsyncioHelper(event_loop, self.client)
+
+        await self.connect()
 
     def run(self):
         """
@@ -86,7 +97,10 @@ class MqttServer(StatelessServer):
                 msg = await self.mqtt_q.get()
                 if msg is None:
                     break
-                receive.put_nowait({'type': 'mqtt', 'payload': msg.payload, 'topic': msg.topic})
+                receive.put_nowait({
+                    'type': 'mqtt',
+                    'payload': msg.payload,
+                    'topic': msg.topic})
 
             receive.put_nowait({'type': 'mqtt_disconnect'})
 
@@ -126,7 +140,8 @@ class MqttServer(StatelessServer):
         if message['type'] == 'mqtt.publish':
             self.client.publish(
                 topic=message['topic'],
-                payload=message['payload']
+                payload=message['payload'],
+                retain=message['retain']
             )
         elif message['type'] == 'mqtt.subscribe':
             self.client.subscribe(
