@@ -1,5 +1,4 @@
-import pytest
-from dispatcher import Action, dispatch
+from mqtt_asgi.dispatcher import Action, dispatch
 
 
 def test_check_single_argument():

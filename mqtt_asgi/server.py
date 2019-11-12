@@ -1,8 +1,7 @@
 import socket
 import time
-from dataclasses import dataclass
 
-from asyncio_helper import AsyncioHelper
+from mqtt_asgi.asyncio_helper import AsyncioHelper
 from asgiref.server import StatelessServer
 import asyncio
 import logging

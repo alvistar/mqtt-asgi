@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-import dispatcher
-
-from mqtt_asgi import MqttServer
-from typing import Callable, Any, NewType, Awaitable, List
+from .dispatcher import Action, dispatch
+from typing import Callable, Any, Awaitable, List
 
 import logging
 
@@ -26,7 +22,6 @@ class Session:
         self.receive = receive
         self.connected = True
         self.registry = registry
-
 
     async def main(self):
         msg = await self.receive()
@@ -67,13 +62,13 @@ class Session:
         })
 
     async def dispatch(self, topic: str, **kwargs):
-        action, args = dispatcher.dispatch(topic, self.registry)
+        action, args = dispatch(topic, self.registry)
         await action.callback(*args, **kwargs)
 
 
-class App:
+class Mcute:
     session: Session
-    registry: List[dispatcher.Action] = []
+    registry: List[Action] = []
 
     async def __call__(self, scope, receive, send):
         self.scope = scope
@@ -87,24 +82,18 @@ class App:
         logger.info('Initialized')
 
     def register(self, topic: str, callback: Callable, subscribe: bool = True):
-        self.registry.append(dispatcher.Action(
+        self.registry.append(Action(
             topic=topic,
             callback=callback,
             subscribe=subscribe
         ))
 
-app = App()
+    def action(self, topic: str, subscribe: bool = True):
+        def decorator(f: Callable):
+            self.register(topic=topic, callback=f, subscribe=subscribe)
+            return f
+
+        return decorator
 
 
-async def my_action(*args, session: Session, payload: bytes):
-    print(f'with args {args} and payload: {payload}')
-    await session.publish('hello', b'world')
-    await session.publish('ciao', b'mondo')
 
-app.register(topic='configure/+', callback=my_action)
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-
-    server = MqttServer(app)
-    server.run()
