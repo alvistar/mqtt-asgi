@@ -1,6 +1,11 @@
-from dispatcher import Dispatcher
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+import dispatcher
+
 from mqtt_asgi import MqttServer
-from typing import Callable, Any, NewType, Awaitable
+from typing import Callable, Any, NewType, Awaitable, List
 
 import logging
 
@@ -14,11 +19,14 @@ class Session:
     send: Send
     receive: Receive
     connected: bool
+    registry: List[Action]
 
-    def __init__(self, send: Send, receive: Receive):
+    def __init__(self, send: Send, receive: Receive, registry: List[Action]):
         self.send = send
         self.receive = receive
         self.connected = True
+        self.registry = registry
+
 
     async def main(self):
         msg = await self.receive()
@@ -34,11 +42,12 @@ class Session:
                 await self.on_disconnect()
                 break
 
-            print(msg)
-            await action(self, msg['topic'], msg['payload'])
+            await self.dispatch(topic=msg['topic'], session=self, payload=msg['payload'])
 
     async def on_connect(self):
-        await self.subscribe('configure/#')
+        for action in self.registry:
+            if action.subscribe:
+                await self.subscribe(action.topic)
 
     async def on_disconnect(self):
         logger.info('Disconnected!')
@@ -57,33 +66,42 @@ class Session:
             'topic': topic,
         })
 
+    async def dispatch(self, topic: str, **kwargs):
+        action, args = dispatcher.dispatch(topic, self.registry)
+        await action.callback(*args, **kwargs)
+
 
 class App:
-    dispatcher: Dispatcher
     session: Session
+    registry: List[dispatcher.Action] = []
 
     async def __call__(self, scope, receive, send):
         self.scope = scope
         self.receive = receive
         self.send = send
-        self.session = Session(send, receive)
+        self.session = Session(send, receive, self.registry)
 
         await self.session.main()
 
     def __init__(self):
         logger.info('Initialized')
-        self.dispatcher = Dispatcher()
 
+    def register(self, topic: str, callback: Callable, subscribe: bool = True):
+        self.registry.append(dispatcher.Action(
+            topic=topic,
+            callback=callback,
+            subscribe=subscribe
+        ))
 
 app = App()
 
 
-@app.dispatcher.topic('test/+')
-async def action(session: Session, topic: str, payload: bytes):
-    print(f'with topic {topic} and payload: {payload}')
+async def my_action(*args, session: Session, payload: bytes):
+    print(f'with args {args} and payload: {payload}')
     await session.publish('hello', b'world')
     await session.publish('ciao', b'mondo')
 
+app.register(topic='configure/+', callback=my_action)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)

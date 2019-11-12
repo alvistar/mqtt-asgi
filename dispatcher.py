@@ -1,56 +1,42 @@
-import inspect
-import re
-from typing import List, Tuple, Callable
+from typing import Callable
+from dataclasses import dataclass
 import logging
+import re
+from typing import List
 
 logger = logging.getLogger(__name__)
 
-class Dispatcher:
-    callbacks: List[Tuple[str, Callable]] = []
 
-    def __init__(self, obj: object= None):
-        self.callbacks = []
+@dataclass
+class Action:
+    topic: str
+    callback: Callable
+    subscribe: bool = True
 
-        if obj is None:
-            return
 
-        for key, value in obj.__class__.__dict__.items():
-            if inspect.isfunction(value):
-                if hasattr(value, "dispatcher"):
-                    self.callbacks.append((value.dispatcher, value.__get__(obj)))
+def dispatch(topic: str, registry: List[Action]):
+    for action in registry:
+        logger.debug("Trying %s", action.topic)
+        result = re.match(mqtt_to_regex(action.topic), topic)
 
-    async def dispatch(self, topic: str, **kwargs):
-        for callback in self.callbacks:
-            logger.debug("Trying %s", callback[0])
-            result = re.match(callback[0], topic)
-            if result:
+        if result:
+            groups = result.groups()
 
-                groups = result.groups()
+            if len(groups) > 0:
                 args = list(groups[:-1])
-                #To match #
+                # Last group can be # and contains multiple args
                 args = args + groups[-1].split("/")
                 logger.debug("Matched {}".format(args))
+            else:
+                args = []
 
-                await callback[1](*args, **kwargs)
+            return action, args
+
+        return None, []
 
 
-    @staticmethod
-    def mqtt_to_regex(topic: str):
-        # escaped = re.escape(topic)
+def mqtt_to_regex(topic: str):
+    # escaped = re.escape(topic)
 
-        return topic.replace("+", "([^/]+)").replace("#", "(.*)")+"$"
+    return topic.replace("+", "([^/]+)").replace("#", "(.*)")+"$"
 
-    @staticmethod
-    def method_topic(topic):
-        def decorator(f: Callable):
-            f.dispatcher = Dispatcher.mqtt_to_regex(topic)
-            return f
-
-        return decorator
-
-    def topic(self, topic):
-        def decorator(f: Callable):
-            self.callbacks.append((Dispatcher.mqtt_to_regex(topic), f))
-            return f
-
-        return decorator
