@@ -1,5 +1,5 @@
 from mqtt_asgi.mcute import Mcute, Session
-from mqtt_asgi.server import MqttServer
+from mqtt_asgi.server import MqttClient
 import logging
 
 app = Mcute()
@@ -16,5 +16,5 @@ async def my_action(*args, session: Session, payload: bytes):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-    server = MqttServer(app)
+    server = MqttClient(app)
     server.run()

@@ -12,7 +12,7 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger(__name__)
 
 
-class MqttServer(StatelessServer):
+class MqttClient(StatelessServer):
     count: int = 0
     # receive: asyncio.Queue
     client: mqtt.Client
@@ -20,15 +20,19 @@ class MqttServer(StatelessServer):
     mqtt_q: 'asyncio.Queue[Dict[str, Any]]'
     should_exit: bool = False
     force_exit: bool = False
+    host: str
+    port: int
     mid_to_pubid: Dict[int, int] = {}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, client_id: str = '', host: str = 'localhost', port: int = 1883, **kwargs):
         super().__init__(*args, **kwargs)
         self.receive = asyncio.Queue()
         self.mqtt_q = asyncio.Queue()
         self.connected = asyncio.Event()
 
-        self.client = mqtt.Client(client_id="asgi")
+        self.client = mqtt.Client(client_id=client_id)
+        self.port = port
+        self.host = host
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_publish = self.on_publish
@@ -71,7 +75,7 @@ class MqttServer(StatelessServer):
     async def connect(self):
         while True:
             try:
-                self.client.connect('localhost')
+                self.client.connect(host=self.host, port=self.port)
                 break
             except (socket.error, OSError, mqtt.WebsocketConnectionError):
                 logger.info('Retrying connection')

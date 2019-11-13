@@ -25,8 +25,8 @@ class Mcute:
     registry: List[Action] = []
     msg_q: List[MqttMessage] = []
     on_connect_cb: Callable = None
-    receive: Optional[Callable[[], Awaitable]]
-    send: Optional[Callable[[Dict[str, Any]], None]]
+    receive: Optional[Callable[[], Awaitable]] = None
+    send: Optional[Callable[[Dict[str, Any]], None]] = None
     pub_id: int = 0
     pub_acks: Dict[id, asyncio.Event] = {}
 
@@ -115,12 +115,12 @@ class Mcute:
         else:
             self.msg_q.append(MqttMessage(topic=topic, payload=payload, retain=retain))
 
-    async def publish_wait(self, *args, **kwargs):
+    async def publish_wait(self, *args, timeout: Optional[float] = None, **kwargs):
         event = asyncio.Event()
         self.pub_acks[self.pub_id] = event
         logger.debug(f'Wating for message with id {self.pub_id}')
         await self.publish(*args, **kwargs)
-        await event.wait()
+        await asyncio.wait_for(event.wait(), timeout=timeout)
 
     async def subscribe(self, topic: str):
         await self.send( {
