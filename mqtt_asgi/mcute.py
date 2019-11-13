@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 
 from .dispatcher import Action, dispatch
-from typing import Callable, Any, Awaitable, List, Optional
+from typing import Callable, Any, Awaitable, List, Optional, Dict
 
 import logging
 
@@ -21,35 +21,56 @@ class MqttMessage:
     retain: bool = False
 
 
-class Session:
-    send: Send
-    receive: Receive
-    connected: bool
-    registry: List[Action]
-    on_connect_cb: Callable
+class Mcute:
+    registry: List[Action] = []
+    msg_q: List[MqttMessage] = []
+    on_connect_cb: Callable = None
+    receive: Optional[Callable[[], Awaitable]]
+    send: Optional[Callable[[Dict[str, Any]], None]]
+    pub_id: int = 0
+    pub_acks: Dict[id, asyncio.Event] = {}
 
-    def __init__(self, send: Send, receive: Receive, registry: List[Action], on_connect_cb: Callable = None):
-        self.send = send
+    async def __call__(self, scope, receive, send):
+        self.scope = scope
         self.receive = receive
-        self.connected = True
-        self.registry = registry
-        self.on_connect_cb = on_connect_cb
+        self.send = send
+
+        await self.main()
+        self.send = None
+
+    def __init__(self):
+        logger.info('Initialized')
 
     async def main(self):
+        #Get connection msg
         msg = await self.receive()
 
         assert msg['type'] == 'mqtt_connect'
         await self.on_connect()
 
-        logger.info(msg)
+        # Dequeu messages
+
+        while len(self.msg_q) > 0:
+            msg = self.msg_q.pop(0)
+            await self.publish(msg.topic, msg.payload)
 
         while True:
             msg = await self.receive()
+
             if msg['type'] == 'mqtt_disconnect':
                 await self.on_disconnect()
                 break
+            elif msg['type'] == 'mqtt_msg':
+                await self.dispatch(topic=msg['topic'], instance=self, payload=msg['payload'])
+            elif msg['type'] == 'mqtt_puback':
+                self.on_publish(msg)
 
-            await self.dispatch(topic=msg['topic'], session=self, payload=msg['payload'])
+    def on_publish(self, message: Dict[str, any]):
+        logger.debug(f"Got ack for {message['id']}")
+        event = self.pub_acks.get(message['id'])
+        if event:
+            event.set()
+            self.pub_acks.pop(message['id'])
 
     async def on_connect(self):
         if self.on_connect_cb:
@@ -63,46 +84,9 @@ class Session:
         logger.info('Disconnected!')
         pass
 
-    async def publish(self, topic: str, payload: bytes, retain: bool = False):
-        await self.send( {
-            'type': 'mqtt.publish',
-            'topic': topic,
-            'payload': payload,
-            'retain': retain
-        })
-
-    async def subscribe(self, topic: str):
-        await self.send( {
-            'type': 'mqtt.subscribe',
-            'topic': topic,
-        })
-
     async def dispatch(self, topic: str, **kwargs):
         action, args = dispatch(topic, self.registry)
         await action.callback(*args, **kwargs)
-
-
-class Mcute:
-    session: Optional[Session]
-    registry: List[Action] = []
-    msg_q: List[MqttMessage] = []
-    on_connect: Callable = None
-
-    async def __call__(self, scope, receive, send):
-        self.scope = scope
-        self.session = Session(send, receive, self.registry, self.on_connect)
-
-        # Dequeu messages
-
-        while len(self.msg_q) > 0:
-            msg = self.msg_q.pop(0)
-            await self.session.publish(msg.topic, msg.payload)
-
-        await self.session.main()
-        self.session = None
-
-    def __init__(self):
-        logger.info('Initialized')
 
     def register(self, topic: str, callback: Callable, subscribe: bool = True):
         self.registry.append(Action(
@@ -119,8 +103,28 @@ class Mcute:
         return decorator
 
     async def publish(self, topic: str, payload: bytes, retain: bool= False):
-        if self.session:
-            await self.session.publish(topic=topic, payload=payload, retain=retain)
+        if self.send:
+            await self.send({
+                'type': 'mqtt.publish',
+                'topic': topic,
+                'payload': payload,
+                'retain': retain,
+                'id': self.pub_id
+            })
+            self.pub_id = self.pub_id + 1
         else:
             self.msg_q.append(MqttMessage(topic=topic, payload=payload, retain=retain))
+
+    async def publish_wait(self, *args, **kwargs):
+        event = asyncio.Event()
+        self.pub_acks[self.pub_id] = event
+        logger.debug(f'Wating for message with id {self.pub_id}')
+        await self.publish(*args, **kwargs)
+        await event.wait()
+
+    async def subscribe(self, topic: str):
+        await self.send( {
+            'type': 'mqtt.subscribe',
+            'topic': topic,
+        })
 

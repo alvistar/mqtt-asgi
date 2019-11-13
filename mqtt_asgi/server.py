@@ -1,7 +1,7 @@
 import signal
 import socket
 import time
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from mqtt_asgi.asyncio_helper import AsyncioHelper
 from asgiref.server import StatelessServer
@@ -17,9 +17,10 @@ class MqttServer(StatelessServer):
     # receive: asyncio.Queue
     client: mqtt.Client
     connected: asyncio.Event
-    mqtt_q: 'Optional[asyncio.Queue[mqtt.MQTTMessage]]'
+    mqtt_q: 'asyncio.Queue[Dict[str, Any]]'
     should_exit: bool = False
     force_exit: bool = False
+    mid_to_pubid: Dict[int, int] = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -30,22 +31,41 @@ class MqttServer(StatelessServer):
         self.client = mqtt.Client(client_id="asgi")
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
+        self.client.on_publish = self.on_publish
         self.client.on_message = self.on_message
 
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         logger.info("Connected with result code " + str(rc))
         self.connected.set()
 
+    def on_publish(self, client: mqtt.Client, userdata, mid):
+        id = self.mid_to_pubid.get(mid)
+
+        logger.debug(f'Received pub_ack for id: {id} and mid: {mid}')
+
+        if id is not None:
+            self.pub_ack(mid=mid, id=id)
+
+            self.mid_to_pubid.pop(mid)
+
+    def pub_ack(self, mid: int, id: int):
+        self.mqtt_q.put_nowait({
+            'type': 'mqtt_puback',
+            'mid': mid,
+            'id': id
+        })
+
     def on_message(self, client: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
-        try:
-            self.mqtt_q.put_nowait(msg)
-            logger.info('New msg')
-        except Exception as e:
-            logger.error(e)
+        self.mqtt_q.put_nowait({
+            'type': 'mqtt_msg',
+            'payload': msg.payload,
+            'topic': msg.topic})
 
     def on_disconnect(self, *args, **kwargs):
         logger.info('Disconnected')
-        self.mqtt_q.put_nowait(None)
+        self.mqtt_q.put_nowait({
+            'type': 'mqtt_disconnect',
+        })
         self.connected.clear()
 
     async def connect(self):
@@ -84,7 +104,6 @@ class MqttServer(StatelessServer):
             logger.info("Exiting due to Ctrl-C/interrupt")
 
     async def handle(self):
-        task = None
         while await self.connected.wait():
             logger.info('Loop starting')
             scope = {'type': 'mqtt'}
@@ -95,12 +114,10 @@ class MqttServer(StatelessServer):
 
             while True:
                 msg = await self.mqtt_q.get()
-                if msg is None:
+                receive.put_nowait(msg)
+
+                if msg['type'] == 'mqtt_disconnect':
                     break
-                receive.put_nowait({
-                    'type': 'mqtt',
-                    'payload': msg.payload,
-                    'topic': msg.topic})
 
             receive.put_nowait({'type': 'mqtt_disconnect'})
 
@@ -134,15 +151,26 @@ class MqttServer(StatelessServer):
         }
         return input_queue
 
+    def publish(self, message):
+
+        info: mqtt.MQTTMessageInfo = self.client.publish(
+            topic=message['topic'],
+            payload=message['payload'],
+            retain=message['retain']
+        )
+
+        if info.rc == mqtt.MQTT_ERR_SUCCESS:
+            if info.is_published():
+                self.pub_ack(id=message['id'], mid=info.mid)
+            else:
+                # Wait for it
+                self.mid_to_pubid[info.mid] = message['id']
+
     async def application_send(self, scope, message):
         logger.info(f'Application sent: {message}')
 
         if message['type'] == 'mqtt.publish':
-            self.client.publish(
-                topic=message['topic'],
-                payload=message['payload'],
-                retain=message['retain']
-            )
+            self.publish(message)
         elif message['type'] == 'mqtt.subscribe':
             self.client.subscribe(
                 topic=message['topic']
