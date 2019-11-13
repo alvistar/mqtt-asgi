@@ -24,7 +24,12 @@ class MqttClient(StatelessServer):
     port: int
     mid_to_pubid: Dict[int, int] = {}
 
-    def __init__(self, *args, client_id: str = '', host: str = 'localhost', port: int = 1883, **kwargs):
+    def __init__(self, *args, client_id: str = '',
+                 host: str = 'localhost',
+                 port: int = 1883,
+                 username: Optional[str] = None,
+                 password: str = '',
+                 **kwargs):
         super().__init__(*args, **kwargs)
         self.receive = asyncio.Queue()
         self.mqtt_q = asyncio.Queue()
@@ -33,6 +38,10 @@ class MqttClient(StatelessServer):
         self.client = mqtt.Client(client_id=client_id)
         self.port = port
         self.host = host
+
+        if username:
+            self.client.username_pw_set(username, password)
+
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_publish = self.on_publish
