@@ -49,7 +49,8 @@ class MqttClient(StatelessServer):
 
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         logger.info("Connected with result code " + str(rc))
-        self.connected.set()
+        if rc == 0:
+            self.connected.set()
 
     def on_publish(self, client: mqtt.Client, userdata, mid):
         id = self.mid_to_pubid.get(mid)
