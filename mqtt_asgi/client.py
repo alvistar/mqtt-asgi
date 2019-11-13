@@ -77,6 +77,11 @@ class MqttClient(StatelessServer):
 
     def on_disconnect(self, *args, **kwargs):
         logger.info('Disconnected')
+
+        # Don't send messages to ASGI app
+        if not self.connected.is_set():
+            return
+
         self.mqtt_q.put_nowait({
             'type': 'mqtt_disconnect',
         })
