@@ -39,9 +39,10 @@ class Mcute:
         self.send = None
 
     def __init__(self):
-        logger.info('Initialized')
+        logger.info('Mcute App initialized')
 
     async def _main(self):
+        logger.info('Mcute Session started')
         #Get connection msg
         msg = await self.receive()
 

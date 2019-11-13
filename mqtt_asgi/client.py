@@ -109,7 +109,7 @@ class MqttClient(StatelessServer):
 
     async def handle(self):
         while await self.connected.wait():
-            logger.info('Loop starting')
+            logger.debug('Loop starting')
             scope = {'type': 'mqtt'}
 
             receive = self.get_or_create_application_instance('my_id', scope)
@@ -171,7 +171,7 @@ class MqttClient(StatelessServer):
                 self.mid_to_pubid[info.mid] = message['id']
 
     async def application_send(self, scope, message):
-        logger.info(f'Application sent: {message}')
+        logger.debug(f'Application sent: {message}')
 
         if message['type'] == 'mqtt.publish':
             self.publish(message)
