@@ -35,18 +35,18 @@ class Mcute:
         self.receive = receive
         self.send = send
 
-        await self.main()
+        await self._main()
         self.send = None
 
     def __init__(self):
         logger.info('Initialized')
 
-    async def main(self):
+    async def _main(self):
         #Get connection msg
         msg = await self.receive()
 
         assert msg['type'] == 'mqtt_connect'
-        await self.on_connect()
+        await self._on_connect()
 
         # Dequeu messages
 
@@ -58,21 +58,21 @@ class Mcute:
             msg = await self.receive()
 
             if msg['type'] == 'mqtt_disconnect':
-                await self.on_disconnect()
+                await self._on_disconnect()
                 break
             elif msg['type'] == 'mqtt_msg':
-                await self.dispatch(topic=msg['topic'], instance=self, payload=msg['payload'])
+                await self._dispatch(topic=msg['topic'], instance=self, payload=msg['payload'])
             elif msg['type'] == 'mqtt_puback':
-                self.on_publish(msg)
+                self._on_publish(msg)
 
-    def on_publish(self, message: Dict[str, any]):
+    def _on_publish(self, message: Dict[str, any]):
         logger.debug(f"Got ack for {message['id']}")
         event = self.pub_acks.get(message['id'])
         if event:
             event.set()
             self.pub_acks.pop(message['id'])
 
-    async def on_connect(self):
+    async def _on_connect(self):
         if self.on_connect_cb:
             await self.on_connect_cb()
 
@@ -80,11 +80,11 @@ class Mcute:
             if action.subscribe:
                 await self.subscribe(action.topic)
 
-    async def on_disconnect(self):
+    async def _on_disconnect(self):
         logger.info('Disconnected!')
         pass
 
-    async def dispatch(self, topic: str, **kwargs):
+    async def _dispatch(self, topic: str, **kwargs):
         action, args = dispatch(topic, self.registry)
         await action.callback(*args, **kwargs)
 
@@ -94,6 +94,13 @@ class Mcute:
             callback=callback,
             subscribe=subscribe
         ))
+
+    def on_connect(self):
+        def decorator(f: Callable):
+            self.on_connect_cb = f
+            return f
+
+        return decorator
 
     def action(self, topic: str, subscribe: bool = True):
         def decorator(f: Callable):
