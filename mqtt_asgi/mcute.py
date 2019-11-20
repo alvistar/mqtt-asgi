@@ -4,7 +4,9 @@ import asyncio
 from dataclasses import dataclass
 
 from .dispatcher import Action, dispatch
+from .client import ApplicationException
 from typing import Callable, Any, Awaitable, List, Optional, Dict
+
 
 import logging
 
@@ -90,8 +92,7 @@ class Mcute:
         try:
             await action.callback(*args, **kwargs)
         except Exception as e:
-            logger.error(f'Exception {e} dispatching to action {action.callback}')
-            raise(e)
+            raise ApplicationException(f'Error while handling msg on {topic}') from e
 
     def register(self, topic: str, callback: Callable, subscribe: bool = True):
         self.registry.append(Action(

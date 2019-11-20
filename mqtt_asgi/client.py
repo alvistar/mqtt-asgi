@@ -1,12 +1,21 @@
 import socket
 from typing import Optional, Dict, Any
-
 from mqtt_asgi.asyncio_helper import AsyncioHelper
 import asyncio
 import logging
 import paho.mqtt.client as mqtt
 
+try:
+    from sentry_sdk import capture_exception
+except ImportError:
+    def capture_exception(exc):
+        pass
+
 logger = logging.getLogger(__name__)
+
+
+class ApplicationException(Exception):
+    pass
 
 
 class MqttClient:
@@ -148,15 +157,14 @@ class MqttClient:
             # Actually it will be only a task, not really a loop
             for task in done:
                 if task.exception():
-                    # If we have error in handling mqtt message terminate
-                    if task is process_task:
+                    if not isinstance(task.exception(), ApplicationException):
                         raise task.exception()
 
-                    # If we have error in application, log error and eventually restart session
                     if not self.restart:
                         raise task.exception()
 
-                    logger.error(f"Exception in app: {app_task.exception()}")
+                    logger.warning(f"Exception in app: {task.exception()}")
+                    capture_exception(task.exception())
                     app_task.print_stack()
                     process_task.cancel()
                     logger.info(f'Restarting app in {self.restart_delay} seconds')
