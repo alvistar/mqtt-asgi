@@ -94,7 +94,6 @@ class Mcute:
             raise(e)
 
     def register(self, topic: str, callback: Callable, subscribe: bool = True):
-        print(f'Registering {topic} {callback}')
         self.registry.append(Action(
             topic=topic,
             callback=callback,
