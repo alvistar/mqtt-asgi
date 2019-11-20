@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
 from dataclasses import dataclass
 
 from .dispatcher import Action, dispatch
