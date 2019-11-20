@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from dataclasses import dataclass
 
 from .dispatcher import Action, dispatch
@@ -8,7 +9,7 @@ from typing import Callable, Any, Awaitable, List, Optional, Dict
 
 import logging
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 Send = Callable[[Any], None]
 Receive = Callable[[], Awaitable]
@@ -87,9 +88,14 @@ class Mcute:
 
     async def _dispatch(self, topic: str, **kwargs):
         action, args = dispatch(topic, self.registry)
-        await action.callback(*args, **kwargs)
+        try:
+            await action.callback(*args, **kwargs)
+        except Exception as e:
+            logger.error(f'Exception {e} dispatching to action {action.callback}')
+            raise(e)
 
     def register(self, topic: str, callback: Callable, subscribe: bool = True):
+        print(f'Registering {topic} {callback}')
         self.registry.append(Action(
             topic=topic,
             callback=callback,
