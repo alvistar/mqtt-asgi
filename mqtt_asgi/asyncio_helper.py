@@ -9,6 +9,7 @@ logger = logging.getLogger('asyncio-helper')
 
 
 class AsyncioHelper:
+    misc: asyncio.Task
 
     def __init__(self, loop, client):
         self.loop = loop
@@ -49,9 +50,7 @@ class AsyncioHelper:
     async def misc_loop(self):
         logger.debug("misc_loop started")
 
-        run = True
-
-        while run:
+        while True:
             rc = mqtt.MQTT_ERR_SUCCESS
 
             while rc == mqtt.MQTT_ERR_SUCCESS:
@@ -69,6 +68,3 @@ class AsyncioHelper:
                     logger.debug('Reconnection failed. Retrying')
                     await asyncio.sleep(3)
 
-            else:
-                logger.debug("misc_loop finished")
-                run = False

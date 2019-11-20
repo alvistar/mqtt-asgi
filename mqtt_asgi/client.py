@@ -1,11 +1,7 @@
-import signal
 import socket
-import time
-import traceback
 from typing import Optional, Dict, Any
 
 from mqtt_asgi.asyncio_helper import AsyncioHelper
-# from asgiref.server import StatelessServer
 import asyncio
 import logging
 import paho.mqtt.client as mqtt
@@ -55,6 +51,7 @@ class MqttClient:
         self.client.on_disconnect = self.on_disconnect
         self.client.on_publish = self.on_publish
         self.client.on_message = self.on_message
+        self.client.enable_logger(logger)
 
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         logger.info("Connected with result code " + str(rc))
@@ -84,8 +81,11 @@ class MqttClient:
             'payload': msg.payload,
             'topic': msg.topic})
 
-    def on_disconnect(self, *args, **kwargs):
-        logger.info('Disconnected')
+    def on_disconnect(self, client: mqtt.Client, userdata, rc):
+        logger.info(f'Disconnected with rc {rc}')
+
+        if rc == mqtt.MQTT_ERR_SUCCESS:
+            exit(0)
 
         # Don't send messages to ASGI app
         if not self.connected.is_set():
