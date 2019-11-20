@@ -1,10 +1,11 @@
 import signal
 import socket
 import time
+import traceback
 from typing import Optional, Dict, Any
 
 from mqtt_asgi.asyncio_helper import AsyncioHelper
-from asgiref.server import StatelessServer
+# from asgiref.server import StatelessServer
 import asyncio
 import logging
 import paho.mqtt.client as mqtt
@@ -12,9 +13,9 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger(__name__)
 
 
-class MqttClient(StatelessServer):
+class MqttClient:
     count: int = 0
-    # receive: asyncio.Queue
+    receive: asyncio.Queue
     client: mqtt.Client
     connected: asyncio.Event
     mqtt_q: 'asyncio.Queue[Dict[str, Any]]'
@@ -23,14 +24,16 @@ class MqttClient(StatelessServer):
     host: str
     port: int
     mid_to_pubid: Dict[int, int] = {}
+    application: Any
 
-    def __init__(self, *args, client_id: str = '',
+    def __init__(self, application, client_id: str = '',
                  host: str = 'localhost',
                  port: int = 1883,
                  username: Optional[str] = None,
-                 password: str = '',
-                 **kwargs):
-        super().__init__(*args, **kwargs)
+                 password: str = ''):
+
+        self.application = application
+
         self.receive = asyncio.Queue()
         self.mqtt_q = asyncio.Queue()
         self.connected = asyncio.Event()
@@ -98,77 +101,68 @@ class MqttClient(StatelessServer):
 
         self.client.socket().setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 2048)
 
-        await self.handle()
-
     async def serve(self):
         event_loop = asyncio.get_event_loop()
-        asyncio.ensure_future(self.application_checker())
 
         AsyncioHelper(event_loop, self.client)
 
-        await self.connect()
+        await self.handle()
 
     def run(self):
         """
         Runs the asyncio event loop with our handler loop.
         """
         event_loop = asyncio.get_event_loop()
-        asyncio.ensure_future(self.application_checker())
 
         AsyncioHelper(event_loop, self.client)
 
         try:
-            event_loop.run_until_complete(self.connect())
+            event_loop.run_until_complete(self.handle())
+            logger.info('exit')
         except KeyboardInterrupt:
             logger.info("Exiting due to Ctrl-C/interrupt")
 
     async def handle(self):
+        await self.connect()
+
         while await self.connected.wait():
             logger.debug('Loop starting')
             scope = {'type': 'mqtt'}
+            self.receive = asyncio.Queue()
 
-            receive = self.get_or_create_application_instance('my_id', scope)
-
-            receive.put_nowait({'type': 'mqtt_connect'})
-
-            while True:
-                msg = await self.mqtt_q.get()
-                receive.put_nowait(msg)
-
-                if msg['type'] == 'mqtt_disconnect':
-                    break
-
-            receive.put_nowait({'type': 'mqtt_disconnect'})
-
-    def get_or_create_application_instance(self, scope_id, scope):
-        """
-        Creates an application instance and returns its queue.
-        """
-        if scope_id in self.application_instances:
-            self.application_instances[scope_id]["last_used"] = time.time()
-            return self.application_instances[scope_id]["input_queue"]
-        # See if we need to delete an old one
-        while len(self.application_instances) > self.max_applications:
-            self.delete_oldest_application_instance()
-        # Make an instance of the application
-        input_queue = asyncio.Queue()
-
-        # application_instance = self.application(scope=scope)
-        # Run it, and stash the future for later checking
-        future = asyncio.ensure_future(
-            self.application(
+            app_task = asyncio.create_task(self.application(
                 scope=scope,
-                receive=input_queue.get,
-                send=lambda message: self.application_send(scope, message),
-            )
-        )
-        self.application_instances[scope_id] = {
-            "input_queue": input_queue,
-            "future": future,
-            "scope": scope,
-            "last_used": time.time(),
-        }
-        return input_queue
+                receive=self.receive.get,
+                send=lambda message: self.application_send(scope, message)))
+
+            process_task = asyncio.create_task(self.process_mqtt_messages())
+
+            (done, pending) = await asyncio.wait([app_task, process_task], return_when=asyncio.FIRST_COMPLETED)
+
+            # Actually it will be only a task, not really a loop
+            for task in done:
+                if task.exception():
+                    # If we have error in handling mqtt message terminate
+                    if task is process_task:
+                        raise task.exception()
+
+                    # If we have error in application, log error and restart session
+                    logger.error(f"Exception in app: {app_task.exception()}")
+                    app_task.print_stack()
+                    process_task.cancel()
+
+    async def process_mqtt_messages(self):
+        self.receive.put_nowait({'type': 'mqtt_connect'})
+
+        while True:
+            msg = await self.mqtt_q.get()
+            self.receive.put_nowait(msg)
+
+            if msg['type'] == 'mqtt_disconnect':
+                break
+
+
+        self.receive.put_nowait({'type': 'mqtt_disconnect'})
 
     def publish(self, message):
 
@@ -194,5 +188,3 @@ class MqttClient(StatelessServer):
             self.client.subscribe(
                 topic=message['topic']
             )
-
-
