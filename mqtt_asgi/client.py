@@ -25,14 +25,20 @@ class MqttClient:
     port: int
     mid_to_pubid: Dict[int, int] = {}
     application: Any
+    restart: bool = True
+    restart_delay: float = 3
 
     def __init__(self, application, client_id: str = '',
                  host: str = 'localhost',
                  port: int = 1883,
                  username: Optional[str] = None,
-                 password: str = ''):
+                 password: str = '',
+                 restart: bool = True,
+                 restart_delay: float = 3):
 
         self.application = application
+        self.restart = restart
+        self.restart_delay = restart_delay
 
         self.receive = asyncio.Queue()
         self.mqtt_q = asyncio.Queue()
@@ -146,10 +152,15 @@ class MqttClient:
                     if task is process_task:
                         raise task.exception()
 
-                    # If we have error in application, log error and restart session
+                    # If we have error in application, log error and eventually restart session
+                    if not self.restart:
+                        raise task.exception()
+
                     logger.error(f"Exception in app: {app_task.exception()}")
                     app_task.print_stack()
                     process_task.cancel()
+                    logger.info(f'Restarting app in {self.restart_delay} seconds')
+                    await asyncio.sleep(self.restart_delay)
 
     async def process_mqtt_messages(self):
         self.receive.put_nowait({'type': 'mqtt_connect'})
@@ -160,7 +171,6 @@ class MqttClient:
 
             if msg['type'] == 'mqtt_disconnect':
                 break
-
 
         self.receive.put_nowait({'type': 'mqtt_disconnect'})
 
