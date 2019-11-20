@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mqtt-asgi"
-version = "0.1.2"
+version = "0.2.0"
 description = ""
 authors = ["Alessandro Viganoonoo <alvistar@gmail.com>"]
 
