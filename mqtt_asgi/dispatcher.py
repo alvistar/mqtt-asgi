@@ -32,7 +32,7 @@ def dispatch(topic: str, registry: List[Action]):
 
             return action, args
 
-        return None, []
+    return None, []
 
 
 def mqtt_to_regex(topic: str):
